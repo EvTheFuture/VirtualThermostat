@@ -32,7 +32,7 @@ import appdaemon.plugins.hass.hassapi as hass
 import appdaemon.plugins.mqtt.mqttapi as mqtt
 import json
 
-VERSION = "0.9.5"
+VERSION = "0.9.6"
 MANUFACTURER = "Valitron AB"
 MODEL = "Virtual Thermostat"
 
@@ -53,6 +53,10 @@ TOPIC_PREFIX = "virtual_thermostat/"
 class VirtualThermostat(mqtt.Mqtt, hass.Hass):
     def initialize(self):
         self.hass = self.get_plugin_api("HASS")
+
+        if "DEBUG" in self.args and self.args["DEBUG"]:
+            self.hass.set_log_level("DEBUG")
+
         self.publish_timer = None
 
         self.max_interval = (
@@ -103,8 +107,7 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
         text : str
             The string to write to the log
         """
-        if "DEBUG" in self.args and self.args["DEBUG"]:
-            self.log(f"DEBUG: {text}")
+        self.get_main_log().debug(text)
 
     def load_persistance_file(self):
         """Load persistance data from file when app starts
