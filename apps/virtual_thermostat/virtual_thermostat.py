@@ -168,7 +168,12 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
         if isinstance(self.args["heat_switch"], list):
             switches = []
             for l in self.args["heat_switch"]:
-                switches += list(l.keys())
+                if isinstance(l, dict):
+                    switches += list(l.keys())
+                elif isinstance(l, str):
+                    switches += [l]
+                else:
+                    self.error(f"Unknown switch configuration: {l}")
         else:
             switches = [self.args["heat_switch"]]
 
@@ -189,9 +194,16 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
         if isinstance(self.args["temp_sensor"], list):
             sensors = []
             for l in self.args["temp_sensor"]:
-                sensors += list(l.keys())
+                if isinstance(l, dict):
+                    sensors += list(l.keys())
+                elif isinstance(l, str):
+                    sensors += [l]
+                else:
+                    self.error(f"Unknown sensor configuration: {l}")
         else:
             sensors = [self.args["temp_sensor"]]
+
+        self.debug(f"Configured sensors: {sensors}")
 
         self.temp_sensors = []
         for s in sensors:
