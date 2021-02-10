@@ -32,7 +32,7 @@ import appdaemon.plugins.hass.hassapi as hass
 import appdaemon.plugins.mqtt.mqttapi as mqtt
 import json
 
-VERSION = "0.9.6"
+VERSION = "0.9.7"
 MANUFACTURER = "Valitron AB"
 MODEL = "Virtual Thermostat"
 
