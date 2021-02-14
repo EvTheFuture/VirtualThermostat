@@ -36,6 +36,8 @@ VERSION = "0.9.7"
 MANUFACTURER = "Valitron AB"
 MODEL = "Virtual Thermostat"
 
+DEFAULT_MAX_AGE = 30 * 60
+
 DEFAULT_MAX_TEMP = 30.0
 DEFAULT_MIN_TEMP = 10.0
 DEFAULT_TARGET_TEMP = 18
@@ -50,9 +52,12 @@ MAX_TIME_BETWEEN_PUBLISH = 5 * 60
 UUID_PREFIX = "virtual_thermostat_"
 TOPIC_PREFIX = "virtual_thermostat/"
 
+
 class VirtualThermostat(mqtt.Mqtt, hass.Hass):
     def initialize(self):
         self.hass = self.get_plugin_api("HASS")
+        self.listen_handlers = {}
+        self.sensor_status = {}
 
         if "DEBUG" in self.args and self.args["DEBUG"]:
             self.hass.set_log_level("DEBUG")
@@ -148,6 +153,37 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
             self.error(f"Exception when storing persistance file: {e}")
             return False
 
+    def register_listeners(self):
+        if len(self.listen_handlers) == len(self.temp_sensors):
+            return
+
+        for e in self.temp_sensors:
+            if "," in e:
+                t = e.split(",")
+                entity = t[0]
+                attribute = t[1]
+            else:
+                entity = e
+                attribute = None
+
+            if entity in self.listen_handlers:
+                continue
+
+            if self.hass.entity_exists(entity):
+                self.listen_handlers[entity] = self.hass.listen_state(
+                    callback=self.handle_state_change,
+                    entity=entity,
+                    attribute=attribute,
+                )
+                self.debug(
+                    f"Subscribing to state updates on {entity} attribute: { attribute }"
+                )
+            else:
+                self.info(f"{entity} does not exists, will retry later...")
+
+        if len(self.listen_handlers) != len(self.temp_sensors):
+            self.hass.run_in(callback=self.register_listeners, delay=60)
+
     def parse_and_register(self):
         """Parse the configuration and publish to MQTT"""
 
@@ -164,65 +200,52 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
             self.error(f"Missing attribute 'temp_sensor'")
             return
 
+        self.radiator_switches = []
+
         # Handle both single switch and multiple switches
         if isinstance(self.args["heat_switch"], list):
-            switches = []
             for l in self.args["heat_switch"]:
                 if isinstance(l, dict):
-                    switches += list(l.keys())
+                    self.radiator_switches += list(l.keys())
                 elif isinstance(l, str):
-                    switches += [l]
+                    self.radiator_switches += [l]
                 else:
                     self.error(f"Unknown switch configuration: {l}")
         else:
-            switches = [self.args["heat_switch"]]
+            self.radiator_switches = [self.args["heat_switch"]]
 
-        self.radiator_switches = []
-        for s in switches:
-            if self.hass.entity_exists(s):
-                self.radiator_switches.append(s)
-            else:
-                self.error(f"{s} does not exists, skipping...")
+        #         self.radiator_switches = []
+        #         for s in switches:
+        #             if self.hass.entity_exists(s):
+        #                 self.radiator_switches.append(s)
+        #             else:
+        #                 self.error(f"{s} does not exists, skipping...")
+        #
+        #         if not len(self.radiator_switches):
+        #             self.error("No matching switch entities found in Home Assistant")
+        #             return
+        #
+        self.debug(f"Radiator switches configured {self.radiator_switches}")
 
-        if not len(self.radiator_switches):
-            self.error("No matching switch entities found in Home Assistant")
-            return
-
-        self.debug(f"Radiators configured {self.radiator_switches}")
+        self.temp_sensors = []
 
         # Handle both single sensor and multiple sensors
         if isinstance(self.args["temp_sensor"], list):
-            sensors = []
+            self.temp_sensors = []
             for l in self.args["temp_sensor"]:
                 if isinstance(l, dict):
-                    sensors += list(l.keys())
+                    self.temp_sensors += list(l.keys())
                 elif isinstance(l, str):
-                    sensors += [l]
+                    self.temp_sensors += [l]
                 else:
                     self.error(f"Unknown sensor configuration: {l}")
         else:
-            sensors = [self.args["temp_sensor"]]
+            self.temp_sensors = [self.args["temp_sensor"]]
 
-        self.debug(f"Configured sensors: {sensors}")
+        self.debug(f"Temperature sensors configured: {self.temp_sensors}")
 
-        self.temp_sensors = []
-        for s in sensors:
-            if self.hass.entity_exists(s):
-                self.temp_sensors.append(s)
-                self.hass.listen_state(
-                    callback=self.handle_state_change, entity=s
-                )
-                self.debug(f"Subscribing to state updates on {s}")
-            else:
-                self.error(f"{s} does not exists, skipping...")
+        self.register_listeners()
 
-        if not len(self.temp_sensors):
-            self.error(
-                "No matching temperature entities found in Home Assistant"
-            )
-            self.set_radiator_switch("off")
-
-        self.debug(f"Sensors active: {self.temp_sensors}")
         self.log(f"Adding Thermostat {friendly_name}")
 
         device_id = self.name
@@ -249,6 +272,7 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
             "current_temperature_topic": "~state",
             "current_temperature_template": "{{ value_json.current_temperature }}",
             #            "fan_modes": "['auto']",
+            "json_attributes_topic": "~attributes",
             "max_temp": self.args["max_temp"]
             if "max_temp" in self.args
             else DEFAULT_MAX_TEMP,
@@ -262,12 +286,6 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
             "power_command_topic": "~set_power",
             "swing_modes": ["off"],
             "temperature_command_topic": "~set_target_temp",
-            #            "temperature_high_command_topic": "~set_high_temp",
-            #            "temperature_high_state_topic": "~state",
-            #            "temperature_high_state_template": "{{value_json.high_temp }}",
-            #            "temperature_low_command_topic": "~set_low_temp",
-            #            "temperature_low_state_topic": "~state",
-            #            "temperature_low_state_template": "{{value_json.low_temp }}",
             "temperature_state_topic": "~state",
             "temperature_state_template": "{{value_json.target_temp }}",
             "temperature_unit": "C",
@@ -314,8 +332,6 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
                 TOPIC_HANDLERS[topic](self, event)
                 self.evaluate_status()
                 self.publish_state()
-            else:
-                self.log(f"No handler found for topic: {topic}")
 
     def handle_set_power(self, event):
         self.debug(f"INSIDE handle_set_power {event}")
@@ -350,6 +366,18 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
         )
 
         self.debug(f"State Published: {payload}")
+
+        payload = {"sensor_status": self.sensor_status}
+
+        # Json Attributes
+        self.call_service(
+            "mqtt/publish",
+            topic=f"{self.topic_base}attributes",
+            payload=json.dumps(payload),
+            retain=False,
+        )
+
+        self.debug(f"Attributes Published: {payload}")
         self.debug("Setting up timer to make sure we reqularily publish")
 
         try:
@@ -377,12 +405,14 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
         """This is the function that handle the logic on when
         to switch radiator(s) on and off, depending on temperature"""
 
-        if self.data["mode"] == "off" or not len(self.temp_sensors):
+        valid_sensors = self.get_valid_sensors()
+
+        if self.data["mode"] == "off" or not valid_sensors:
             self.set_radiator_switch("off")
             self.current_action = "off"
             return
 
-        current_temp = self.current_temperature()
+        current_temp = self.current_temperature(valid_sensors)
 
         target_temp = float(self.data["target_temp"])
         lowest_temp = target_temp - self.max_interval / 2
@@ -398,6 +428,39 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
         else:
             self.current_action = "heating"
 
+    def get_valid_sensors(self):
+        sensors = []
+        status = {}
+
+        now = self.hass.datetime(aware=True)
+
+        for entity in self.temp_sensors:
+            if "," in entity:
+                t = entity.split(",")
+                s = t[0]
+                a = t[1]
+            else:
+                s = entity
+                a = None
+
+            if self.hass.entity_exists(s):
+                last_updated_str = self.hass.get_state(s, "last_updated")
+                last_updated = self.hass.convert_utc(last_updated_str)
+                seconds = (now - last_updated).seconds
+
+                if seconds > DEFAULT_MAX_AGE:
+                    minutes = round(seconds / 6)
+                    self.debug(f"Last Update of {s} to long ago, skipping...")
+                    status[s] = f"Data to old ({minutes} minutes)"
+                else:
+                    sensors.append({"entity": s, "attribute": a})
+                    status[s] = float(self.hass.get_state(s, a))
+            else:
+                status[s] = "Not found"
+
+        self.sensor_status = status
+        return sensors
+
     def set_radiator_switch(self, state):
         for s in self.radiator_switches:
             self.debug(f"Setting state \"{state}\" to '{s}'")
@@ -405,16 +468,19 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
                 f"switch/turn_{state}", entity_id=s,
             )
 
-    def current_temperature(self):
-        if not len(self.temp_sensors):
+    def current_temperature(self, valid_sensors=None):
+        if valid_sensors is None:
+            valid_sensors = self.get_valid_sensors()
+
+        if not len(valid_sensors):
             return 0.0
 
         temp = 0.0
 
-        for s in self.temp_sensors:
-            temp += float(self.hass.get_state(s))
+        for e in valid_sensors:
+            temp += float(self.hass.get_state(e["entity"], e["attribute"]))
 
-        temp /= len(self.temp_sensors)
+        temp /= len(valid_sensors)
 
-        self.debug(f"Current Temperature is: {temp})")
+        self.debug(f"Current Temperature is: {temp}")
         return round(temp, 1)
