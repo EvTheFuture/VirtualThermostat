@@ -55,6 +55,7 @@ gaming_room_radiator:
     max_temp: 28
     min_temp: 12
     max_interval: 0.8
+    max_age: 15
     friendly_name: Gaming Room Radiator
     DEBUG: no
 
@@ -67,6 +68,7 @@ living_room_radiators:
       - switch.shelly_shsw_25_567890123456_1:
     max_temp: 28
     min_temp: 12
+    max_age: 10
     max_interval: 0.8
     friendly_name: Livingroom Radiators
     DEBUG: no
@@ -81,6 +83,7 @@ kitchen_radiator:
     heat_switch: switch.shelly_shsw_25_1234567890ab_2
     max_temp: 28
     min_temp: 12
+    max_age: 20
     max_interval: 0.8
     friendly_name: Kitchen Radiator
     DEBUG: no
