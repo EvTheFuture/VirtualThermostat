@@ -24,6 +24,7 @@ max_interval:      O: interval where state is not chenged around target temp
 max_temp:          O: max temperature that can be set
 min_temp:          O: min temperature that can be set
 temp_sensor:       M: entity or list of entities to read temperature from
+max_age            O: Max time in minutes since last sensor update (default 30)
 friendly_name:     O: a friendly name for the user
 DEBUG:             O: yes | no (activate debug logging)
 """
@@ -58,6 +59,14 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
         self.hass = self.get_plugin_api("HASS")
         self.listen_handlers = {}
         self.sensor_data = {}
+
+        self.max_age = DEFAULT_MAX_AGE
+
+        if "max_age" in self.args:
+            try:
+                self.max_age = float(self.args["max_age"]) * 60
+            except Exception as e:
+                self.log(f"max_age: {self.args['max_age']} is invalid")
 
         if "DEBUG" in self.args and self.args["DEBUG"]:
             self.hass.set_log_level("DEBUG")
@@ -179,7 +188,7 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
                     f"Subscribing to state updates on {entity} attribute: { attribute }"
                 )
             else:
-                self.info(f"{entity} does not exists, will retry later...")
+                self.log(f"{entity} does not exists, will retry later...")
 
         if len(self.listen_handlers) != len(self.temp_sensors):
             self.hass.run_in(callback=self.register_listeners, delay=60)
@@ -443,6 +452,7 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
                 "valid": True,
                 "value": None,
                 "message": None,
+                "seconds_since_last_update": None,
                 "last_updated": None,
             }
 
@@ -452,8 +462,9 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
 
                 last_updated = self.hass.convert_utc(last_updated_str)
                 seconds = (now - last_updated).seconds
+                status[s]["seconds_since_last_update"] = seconds
 
-                if seconds > DEFAULT_MAX_AGE:
+                if seconds > self.max_age:
                     minutes = round(seconds / 6)
                     self.debug(f"Last Update of {s} to long ago, skipping...")
                     status[s] = f"Data to old ({minutes} minutes)"
@@ -475,6 +486,7 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
         self.sensor_data = {
             "current_temperature": round(current_temperature, 1),
             "valid_sensors": number_of_valid_sensors,
+            "max_age": self.max_age,
             "sensor_data": status,
         }
 
