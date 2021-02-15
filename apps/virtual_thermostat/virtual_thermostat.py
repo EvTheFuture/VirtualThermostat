@@ -33,7 +33,7 @@ import appdaemon.plugins.hass.hassapi as hass
 import appdaemon.plugins.mqtt.mqttapi as mqtt
 import json
 
-VERSION = "0.9.8"
+VERSION = "0.9.9"
 MANUFACTURER = "Valitron AB"
 MODEL = "Virtual Thermostat"
 
@@ -465,16 +465,19 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
                 status[s]["seconds_since_last_update"] = seconds
 
                 if seconds > self.max_age:
-                    minutes = round(seconds / 6)
+                    minutes = round(seconds / 60)
                     self.debug(f"Last Update of {s} to long ago, skipping...")
-                    status[s] = f"Data to old ({minutes} minutes)"
-                else:
-                    try:
-                        status[s]["value"] = float(self.hass.get_state(s, a))
+                    status[s]["message"] = f"Data to old ({minutes} minutes)"
+                    status[s]["valid"] = False
+
+                try:
+                    status[s]["value"] = float(self.hass.get_state(s, a))
+                    if status[s]["valid"]:
                         number_of_valid_sensors += 1
                         current_temperature += status[s]["value"]
-                    except Exception as e:
-                        status[s]["valid"] = False
+                except Exception as e:
+                    status[s]["valid"] = False
+                    if not status[s]["message"]:
                         status[s]["message"] = "Unable to read sensor state"
             else:
                 status[s]["message"] = "Entity not found"
@@ -486,7 +489,7 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
         self.sensor_data = {
             "current_temperature": round(current_temperature, 1),
             "valid_sensors": number_of_valid_sensors,
-            "max_age": self.max_age,
+            "max_age": self.max_age / 60,
             "sensor_data": status,
         }
 
