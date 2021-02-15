@@ -1,6 +1,6 @@
 """
     Create a Thermostat in HA from switches and sensors
-    Copyright (C) 2020    Magnus Sandin <magnus.sandin@gmail.com>
+    Copyright (C) 2021    Magnus Sandin <magnus.sandin@gmail.com>
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
