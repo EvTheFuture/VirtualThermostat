@@ -33,7 +33,7 @@ import appdaemon.plugins.hass.hassapi as hass
 import appdaemon.plugins.mqtt.mqttapi as mqtt
 import json
 
-VERSION = "0.9.9"
+VERSION = "0.9.10"
 MANUFACTURER = "Valitron AB"
 MODEL = "Virtual Thermostat"
 
@@ -102,6 +102,8 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
         )
 
     def terminate(self):
+        self.remove_timer(self.publish_timer)
+
         """Store persistance data to file when app terminates"""
         try:
             topic = self.topic_subscription
@@ -122,6 +124,18 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
             The string to write to the log
         """
         self.get_main_log().debug(text)
+
+    def remove_timer(self, th):
+        """Wrapper to cancel_timer with sanity checks
+
+        Parameters
+        ----------
+        th : str
+            Timer Handle from run_in
+        """
+        if th is not None and self.hass.timer_running(th):
+            self.hass.cancel_timer(th)
+            self.log(f"Cancelled the timer with handle: {th}")
 
     def load_persistance_file(self):
         """Load persistance data from file when app starts
@@ -384,7 +398,7 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
         self.debug("Setting up timer to make sure we reqularily publish")
 
         try:
-            self.hass.cancel_timer(self.publish_timer)
+            self.remove_timer(self.publish_timer)
             self.debug("Successfully canceled publish timer")
         except Exception as e:
             pass
