@@ -135,7 +135,7 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
         """
         if th is not None and self.hass.timer_running(th):
             self.hass.cancel_timer(th)
-            self.log(f"Cancelled the timer with handle: {th}")
+            self.debug(f"Cancelled the timer with handle: {th}")
 
     def load_persistance_file(self):
         """Load persistance data from file when app starts
@@ -195,7 +195,7 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
             if self.hass.entity_exists(entity):
                 self.listen_handlers[entity] = self.hass.listen_state(
                     callback=self.handle_state_change,
-                    entity=entity,
+                    entity_id=entity,
                     attribute=attribute,
                 )
                 self.debug(
@@ -322,13 +322,26 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
 
         self.topic_subscription = f"{self.topic_base}#"
         self.call_service("mqtt/subscribe", topic=self.topic_subscription)
-        self.debug(f"Subscribed to: {self.topic_subscription}")
+        self.debug(f"Subscribed to MQTT topic: {self.topic_subscription}")
 
         self.evaluate_status()
         self.publish_state()
 
     def handle_mqtt_message(self, callback, event, kwargs):
         """This is called when a MQTT message has been received"""
+
+        if event is None:
+            self.warning(f"Received None event...")
+            return
+
+        full_topic = event["topic"]
+
+        if full_topic is None:
+            self.warning(f"Received Topic is None... event: {event}")
+            return
+
+        if not full_topic.startswith(TOPIC_PREFIX):
+            return
 
         TOPIC_HANDLERS = {
             "~set_target_temp": VirtualThermostat.handle_set_temp,
@@ -337,10 +350,6 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
             "~set_power": VirtualThermostat.handle_set_power,
             "~set_mode": VirtualThermostat.handle_set_mode,
         }
-
-        full_topic = event["topic"]
-        if not full_topic.startswith(TOPIC_PREFIX):
-            return
 
         if full_topic.startswith(self.topic_base):
             topic = full_topic.replace(self.topic_base, "~")
@@ -506,6 +515,7 @@ class VirtualThermostat(mqtt.Mqtt, hass.Hass):
             "max_age": self.max_age / 60,
             "sensor_data": status,
         }
+
 
     def set_radiator_switch(self, state):
         for s in self.radiator_switches:
